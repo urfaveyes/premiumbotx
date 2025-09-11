@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 
 # ===== CONFIG =====
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8277819223:AAEzjJdDdWR2H0Dhfn_8B8NG3iQtUJYFAL0")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://premiumbot.deta.app/telegram")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://premiumbotx-3.onrender.com/telegram")
 PREMIUM_GROUP_LINK = "https://t.me/+5fmB-ojP74NhNWE1"
 
 # Razorpay test keys
