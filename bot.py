@@ -79,9 +79,6 @@ dispatcher.add_handler(CommandHandler("joinpremium", join_premium))
 # ===== Flask App =====
 app = Flask(__name__)
 
-@app.route("/", methods=["GET"])
-def home():
-    return "🏠 Flask bot is running", 200
 
 @app.route("/telegram", methods=["POST"])
 def telegram_webhook():
