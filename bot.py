@@ -1,32 +1,82 @@
 from telegram import Update, Bot
 from telegram.ext import Updater, Dispatcher, CommandHandler, CallbackContext
 from flask import Flask, request
-import json, os, time, hmac, hashlib, requests, threading
+import json, os, time, hmac, hashlib, requests
 from datetime import datetime, timedelta
+import base64
+import firebase_admin
+from firebase_admin import credentials, firestore
 
 # ===== CONFIG =====
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8277819223:AAEzjJdDdWR2H0Dhfn_8B8NG3iQtUJYFAL0")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://premiumbotx-3.onrender.com/telegram")
+BOT_TOKEN = os.getenv("8277819223:AAEzjJdDdWR2H0Dhfn_8B8NG3iQtUJYFAL0")
+WEBHOOK_URL = os.getenv("https://premiumbotx-3.onrender.com/telegram")
 PREMIUM_GROUP_LINK = "https://t.me/+5fmB-ojP74NhNWE1"
 
-# Razorpay test keys
-RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_test_RFzw6gJnEXKlRr")
-RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "zg1M9tqs7kqDTQnj5H2B9cC6")
-
+RAZORPAY_KEY_ID = os.getenv("rzp_test_RFzw6gJnEXKlRr")
+RAZORPAY_KEY_SECRET = os.getenv("zg1M9tqs7kqDTQnj5H2B9cC6")
 MEMBERSHIP_AMOUNT_RUPEES = 50
-WEBHOOK_SECRET = "Ravindra@01"
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "Ravindra@01")
+
 MEMBERS_DB = "members.json"
+FIREBASE_CREDENTIALS = os.getenv("FIREBASE_CREDENTIALS")
+FIREBASE_CREDENTIALS_B64 = os.getenv("FIREBASE_CREDENTIALS_B64")
+
+# ===== Firebase / Firestore Setup =====
+cred_dict = None
+if FIREBASE_CREDENTIALS:
+    try:
+        cred_dict = json.loads(FIREBASE_CREDENTIALS)
+    except Exception:
+        cred_dict = json.loads(FIREBASE_CREDENTIALS.replace('\\n', '\n'))
+elif FIREBASE_CREDENTIALS_B64:
+    cred_dict = json.loads(base64.b64decode(FIREBASE_CREDENTIALS_B64).decode())
+
+if cred_dict:
+    cred = credentials.Certificate(cred_dict)
+    firebase_admin.initialize_app(cred)
+    db = firestore.client()
+    print("Firestore connected")
+else:
+    db = None
+    print("Firestore disabled, falling back to file storage")
 
 # ===== Helpers =====
 def load_members():
-    if os.path.exists(MEMBERS_DB):
-        with open(MEMBERS_DB, "r") as f:
-            return json.load(f)
-    return {}
+    if db:
+        docs = db.collection("members").stream()
+        out = {}
+        for doc in docs:
+            d = doc.to_dict()
+            tg = str(d.get("telegram_id") or doc.id)
+            out[tg] = {
+                "joined_at": d.get("joined_at"),
+                "expiry": d.get("expiry"),
+                "payment_link_id": d.get("payment_link_id")
+            }
+        return out
+    else:
+        if os.path.exists(MEMBERS_DB):
+            with open(MEMBERS_DB, "r") as f:
+                return json.load(f)
+        return {}
 
-def save_members(data):
-    with open(MEMBERS_DB, "w") as f:
-        json.dump(data, f, indent=4)
+def upsert_single_member(tg_id, joined_at_iso, expiry_str, payment_link_id=None):
+    if db:
+        db.collection("members").document(str(tg_id)).set({
+            "telegram_id": str(tg_id),
+            "joined_at": joined_at_iso,
+            "expiry": expiry_str,
+            "payment_link_id": payment_link_id
+        }, merge=True)
+    else:
+        members = load_members()
+        members[str(tg_id)] = {
+            "joined_at": joined_at_iso,
+            "expiry": expiry_str,
+            "payment_link_id": payment_link_id
+        }
+        with open(MEMBERS_DB, "w") as f:
+            json.dump(members, f, indent=4)
 
 def create_payment_link(telegram_id, amount_rupees=MEMBERSHIP_AMOUNT_RUPEES):
     amount_paise = int(amount_rupees * 100)
@@ -72,13 +122,13 @@ def join_premium(update: Update, context: CallbackContext):
             update.message.reply_text("❌ Payment link creation failed.")
     except Exception as e:
         update.message.reply_text("⚠️ Error creating payment link. Contact admin.")
+        print("create_payment_link error:", e)
 
 dispatcher.add_handler(CommandHandler("start", start))
 dispatcher.add_handler(CommandHandler("joinpremium", join_premium))
 
 # ===== Flask App =====
 app = Flask(__name__)
-
 
 @app.route("/telegram", methods=["POST"])
 def telegram_webhook():
@@ -93,7 +143,6 @@ def razorpay_webhook():
     header_sig = request.headers.get("X-Razorpay-Signature")
     if not header_sig:
         return "", 400
-
     generated = hmac.new(WEBHOOK_SECRET.encode(), raw, hashlib.sha256).hexdigest()
     if not hmac.compare_digest(generated, header_sig):
         return "", 401
@@ -103,61 +152,61 @@ def razorpay_webhook():
         payment_link_obj = payload["payload"]["payment_link"]["entity"]
         tg_id = payment_link_obj["notes"].get("telegram_id")
         if tg_id:
-            members = load_members()
             now = datetime.utcnow()
+            try:
+                if db:
+                    doc_ref = db.collection("members").document(str(tg_id))
+                    doc = doc_ref.get()
+                    if doc.exists and "expiry" in doc.to_dict():
+                        old_expiry = datetime.strptime(doc.to_dict()["expiry"], "%Y-%m-%d")
+                        new_expiry = old_expiry + timedelta(days=30) if old_expiry >= now else now + timedelta(days=30)
+                    else:
+                        new_expiry = now + timedelta(days=30)
+                else:
+                    members = load_members()
+                    if str(tg_id) in members and datetime.strptime(members[str(tg_id)]["expiry"], "%Y-%m-%d") >= now:
+                        old_expiry = datetime.strptime(members[str(tg_id)]["expiry"], "%Y-%m-%d")
+                        new_expiry = old_expiry + timedelta(days=30)
+                    else:
+                        new_expiry = now + timedelta(days=30)
 
-            # agar already member hai aur expire future me hai to extend
-            if tg_id in members and datetime.strptime(members[tg_id]["expiry"], "%Y-%m-%d") >= now:
-                old_expiry = datetime.strptime(members[tg_id]["expiry"], "%Y-%m-%d")
-                new_expiry = old_expiry + timedelta(days=30)
-                bot.send_message(
-                    chat_id=int(tg_id),
-                    text=f"✅ Renewal successful! Your membership has been extended till {new_expiry.strftime('%Y-%m-%d')}."
-                )
-            else:
-                new_expiry = now + timedelta(days=30)
                 bot.send_message(
                     chat_id=int(tg_id),
                     text=f"✅ Payment confirmed. Membership valid till {new_expiry.strftime('%Y-%m-%d')}.\nJoin Premium: {PREMIUM_GROUP_LINK}"
                 )
-
-            members[tg_id] = {
-                "joined_at": now.isoformat(),
-                "expiry": new_expiry.strftime("%Y-%m-%d"),
-                "payment_link_id": payment_link_obj.get("id")
-            }
-            save_members(members)
-
+                upsert_single_member(tg_id, now.isoformat(), new_expiry.strftime("%Y-%m-%d"), payment_link_obj.get("id"))
+            except Exception as e:
+                print("Error in razorpay webhook:", e)
     return "", 200
 
-# ===== Reminder System =====
-def reminder_job():
-    while True:
+# ===== Reminder Route (cron-triggered) =====
+@app.route("/run-reminders", methods=["GET"])
+def run_reminders():
+    now = datetime.utcnow()
+    if db:
+        docs = db.collection("members").stream()
+        iterator = ((doc.id, doc.to_dict()) for doc in docs)
+    else:
         members = load_members()
-        now = datetime.utcnow()
-        for tg_id, data in members.items():
+        iterator = members.items()
+
+    for tg_id, data in iterator:
+        try:
             expiry = datetime.strptime(data["expiry"], "%Y-%m-%d")
             days_left = (expiry - now).days
-            if 0 < days_left <= 3:  # 3 din pehle se daily reminder
-                try:
-                    # Naya payment link generate karo renewal ke liye
-                    _, short_url = create_payment_link(tg_id)
+            if 0 < days_left <= 3:
+                _, short_url = create_payment_link(tg_id)
+                bot.send_message(
+                    chat_id=int(tg_id),
+                    text=(f"⚠️ Reminder: Your Premium membership will expire on {expiry.strftime('%Y-%m-%d')} ({days_left} days left).\n\n"
+                          f"💳 Renew now: {short_url}")
+                )
+        except Exception as e:
+            print("Reminder send error for", tg_id, e)
+    return "ok", 200
 
-                    bot.send_message(
-                        chat_id=int(tg_id),
-                        text=(
-                            f"⚠️ Reminder: Your Premium membership will expire on "
-                            f"{expiry.strftime('%Y-%m-%d')} ({days_left} days left).\n\n"
-                            f"💳 Renew now to continue uninterrupted access:\n{short_url}"
-                        )
-                    )
-                except Exception as e:
-                    print("Reminder send error:", e)
-        time.sleep(24 * 3600)  # har 24 ghante me run hoga
-
-# Background thread start karo
-threading.Thread(target=reminder_job, daemon=True).start()
-
+# ===== Run app =====
 if __name__ == "__main__":
-    bot.set_webhook(WEBHOOK_URL)
-    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False)
+    if WEBHOOK_URL:
+        bot.set_webhook(WEBHOOK_URL)
+    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 5000)), debug=False, use_reloader=False)
