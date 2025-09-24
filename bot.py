@@ -8,7 +8,7 @@ from firebase_admin import credentials, firestore
 
 # ===== CONFIG =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+WEBHOOK_URL = os.getenv("https://premiumbotx-3.onrender.com/telegram")
 PREMIUM_GROUP_LINK = "https://t.me/+5fmB-ojP74NhNWE1"
 ADMIN_GROUP_ID = os.getenv("ADMIN_GROUP_ID")  # private admin group ID
 
@@ -98,10 +98,11 @@ def join_premium(update: Update, context: CallbackContext):
     try:
         _, short_url = create_payment_link(user.id)
         if short_url:
+            # Bot me hi link show, first-time user assume
             update.message.reply_text(
                 f"Hello {user.first_name}! 🔥\n\n"
                 f"Pay ₹{MEMBERSHIP_AMOUNT_RUPEES} using this link:\n{short_url}\n\n"
-                "After payment you'll automatically receive the invite link ✅."
+                f"Join Premium: {PREMIUM_GROUP_LINK}"
             )
         else:
             update.message.reply_text("❌ Payment link creation failed.")
@@ -145,25 +146,24 @@ def razorpay_webhook():
                     if doc.exists and "expiry" in doc.to_dict():
                         old_expiry = datetime.strptime(doc.to_dict()["expiry"], "%Y-%m-%d")
                         new_expiry = old_expiry + timedelta(days=30) if old_expiry >= now else now + timedelta(days=30)
-                        # Early renewal alert
+                        # Early renewal alert (existing user)
                         if old_expiry >= now:
                             bot.send_message(
                                 chat_id=int(ADMIN_GROUP_ID),
                                 text=f"✅ User @{tg_id} renewed premium early. New expiry: {new_expiry.strftime('%Y-%m-%d')}"
                             )
                     else:
+                        # First-time payment (new user)
                         new_expiry = now + timedelta(days=30)
                 else:
                     new_expiry = now + timedelta(days=30)
 
-                # DM with Premium link
+                # DM only: show expiry extend, no group link
                 bot.send_message(
                     chat_id=int(tg_id),
-                    text=f"✅ Payment confirmed. Membership valid till {new_expiry.strftime('%Y-%m-%d')}.\nJoin Premium: {PREMIUM_GROUP_LINK}"
+                    text=f"✅ Payment confirmed. Membership valid till {new_expiry.strftime('%Y-%m-%d')}."
                 )
-
                 upsert_single_member(tg_id, now.isoformat(), new_expiry.strftime("%Y-%m-%d"), payment_link_obj.get("id"))
-
             except Exception as e:
                 print("Error in razorpay webhook:", e)
     return "", 200
@@ -183,7 +183,6 @@ def run_reminders():
             expiry = datetime.strptime(data["expiry"], "%Y-%m-%d")
             days_left = (expiry - now).days
             _, short_url = create_payment_link(tg_id)
-
             # DM reminder last 3 days
             if 0 < days_left <= 3:
                 bot.send_message(
@@ -191,8 +190,7 @@ def run_reminders():
                     text=(f"⚠️ Reminder: Your Premium membership will expire on {expiry.strftime('%Y-%m-%d')} ({days_left} days left).\n\n"
                           f"💳 Renew now: {short_url}")
                 )
-
-            # Admin group reminder only on last day
+            # Admin group only on last day
             if days_left == 0:
                 bot.send_message(
                     chat_id=int(ADMIN_GROUP_ID),
