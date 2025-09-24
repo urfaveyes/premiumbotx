@@ -96,6 +96,7 @@ def create_payment_link(telegram_id, amount_rupees=MEMBERSHIP_AMOUNT_RUPEES):
     resp.raise_for_status()
     data = resp.json()
     return data, data.get("short_url")
+print("DEBUG BOT_TOKEN:", repr(BOT_TOKEN))
 
 # ===== Telegram Setup =====
 bot = Bot(BOT_TOKEN)
