@@ -60,8 +60,6 @@ def upsert_single_member(tg_id, joined_at_iso, expiry_str, payment_link_id=None)
             "expiry": expiry_str,
             "payment_link_id": payment_link_id
         }, merge=True)
-    else:
-        pass
 
 def create_payment_link(telegram_id, amount_rupees=MEMBERSHIP_AMOUNT_RUPEES):
     amount_paise = int(amount_rupees * 100)
@@ -98,11 +96,10 @@ def join_premium(update: Update, context: CallbackContext):
     try:
         _, short_url = create_payment_link(user.id)
         if short_url:
-            # Bot me hi link show, first-time user assume
             update.message.reply_text(
                 f"Hello {user.first_name}! 🔥\n\n"
                 f"Pay ₹{MEMBERSHIP_AMOUNT_RUPEES} using this link:\n{short_url}\n\n"
-                f"Join Premium: {PREMIUM_GROUP_LINK}"
+                "After successful payment, you'll automatically receive the invite link ✅."
             )
         else:
             update.message.reply_text("❌ Payment link creation failed.")
@@ -140,28 +137,34 @@ def razorpay_webhook():
         if tg_id:
             now = datetime.utcnow()
             try:
+                first_time_payment = False
                 if db:
                     doc_ref = db.collection("members").document(str(tg_id))
                     doc = doc_ref.get()
                     if doc.exists and "expiry" in doc.to_dict():
                         old_expiry = datetime.strptime(doc.to_dict()["expiry"], "%Y-%m-%d")
                         new_expiry = old_expiry + timedelta(days=30) if old_expiry >= now else now + timedelta(days=30)
-                        # Early renewal alert (existing user)
+                        # Early renewal alert
                         if old_expiry >= now:
                             bot.send_message(
                                 chat_id=int(ADMIN_GROUP_ID),
                                 text=f"✅ User @{tg_id} renewed premium early. New expiry: {new_expiry.strftime('%Y-%m-%d')}"
                             )
                     else:
-                        # First-time payment (new user)
                         new_expiry = now + timedelta(days=30)
+                        first_time_payment = True
                 else:
                     new_expiry = now + timedelta(days=30)
+                    first_time_payment = True
 
-                # DM only: show expiry extend, no group link
+                # Send premium group link only for first-time payment
+                msg_text = f"✅ Payment confirmed. Membership valid till {new_expiry.strftime('%Y-%m-%d')}."
+                if first_time_payment:
+                    msg_text += f"\nJoin Premium: {PREMIUM_GROUP_LINK}"
+
                 bot.send_message(
                     chat_id=int(tg_id),
-                    text=f"✅ Payment confirmed. Membership valid till {new_expiry.strftime('%Y-%m-%d')}."
+                    text=msg_text
                 )
                 upsert_single_member(tg_id, now.isoformat(), new_expiry.strftime("%Y-%m-%d"), payment_link_obj.get("id"))
             except Exception as e:
