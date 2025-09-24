@@ -12,10 +12,10 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("https://premiumbotx-3.onrender.com/telegram")
 PREMIUM_GROUP_LINK = "https://t.me/+5fmB-ojP74NhNWE1"
 
-RAZORPAY_KEY_ID = os.getenv("rzp_test_RFzw6gJnEXKlRr")
-RAZORPAY_KEY_SECRET = os.getenv("zg1M9tqs7kqDTQnj5H2B9cC6")
+RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
+RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
 MEMBERSHIP_AMOUNT_RUPEES = 50
-WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "Ravindra@01")
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "WEBHOOK_SECRET")
 
 MEMBERS_DB = "members.json"
 FIREBASE_CREDENTIALS = os.getenv("FIREBASE_CREDENTIALS")
