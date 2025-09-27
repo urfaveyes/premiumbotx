@@ -14,7 +14,7 @@ ADMIN_GROUP_ID = os.getenv("ADMIN_GROUP_ID")  # private admin group ID
 
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET")
-MEMBERSHIP_AMOUNT_RUPEES = 50
+MEMBERSHIP_AMOUNT_RUPEES = 49
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "Ravindra@01")
 FIREBASE_CREDENTIALS = os.getenv("FIREBASE_CREDENTIALS")
 
@@ -148,7 +148,7 @@ def razorpay_webhook():
                         if old_expiry >= now:
                             bot.send_message(
                                 chat_id=int(ADMIN_GROUP_ID),
-                                text=f"✅ User @{tg_id} renewed premium early. New expiry: {new_expiry.strftime('%Y-%m-%d')}"
+                                text=f"✅ User @{tg_id} renewed premium early, dont kick. New expiry: {new_expiry.strftime('%Y-%m-%d')}"
                             )
                     else:
                         new_expiry = now + timedelta(days=30)
