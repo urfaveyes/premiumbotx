@@ -121,8 +121,8 @@ def razorpay_webhook():
         if tg_id:
             now = datetime.utcnow()
             try:
-                new_expiry = now + timedelta(days=30)
-                msg_text = f"✅ Payment confirmed. Membership valid till {new_expiry.strftime('%Y-%m-%d')}.\nJoin Premium: {PREMIUM_GROUP_LINK}"
+        
+                msg_text = f"✅ Payment confirmed.\nJoin Premium: {PREMIUM_GROUP_LINK}"
 
                 bot.send_message(
                     chat_id=int(tg_id),
