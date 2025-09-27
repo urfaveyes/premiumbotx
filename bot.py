@@ -36,22 +36,6 @@ else:
     print("Firestore disabled, falling back to file storage")
 
 # ===== Helpers =====
-def load_members():
-    if db:
-        docs = db.collection("members").stream()
-        out = {}
-        for doc in docs:
-            d = doc.to_dict()
-            tg = str(d.get("telegram_id") or doc.id)
-            out[tg] = {
-                "joined_at": d.get("joined_at"),
-                "expiry": d.get("expiry"),
-                "payment_link_id": d.get("payment_link_id")
-            }
-        return out
-    else:
-        return {}
-
 def upsert_single_member(tg_id, joined_at_iso, expiry_str, payment_link_id=None):
     if db:
         db.collection("members").document(str(tg_id)).set({
@@ -137,71 +121,22 @@ def razorpay_webhook():
         if tg_id:
             now = datetime.utcnow()
             try:
-                first_time_payment = False
-                if db:
-                    doc_ref = db.collection("members").document(str(tg_id))
-                    doc = doc_ref.get()
-                    if doc.exists and "expiry" in doc.to_dict():
-                        old_expiry = datetime.strptime(doc.to_dict()["expiry"], "%Y-%m-%d")
-                        new_expiry = old_expiry + timedelta(days=30) if old_expiry >= now else now + timedelta(days=30)
-                        # Early renewal alert
-                        if old_expiry >= now:
-                            bot.send_message(
-                                chat_id=int(ADMIN_GROUP_ID),
-                                text=f"✅ User @{tg_id} renewed premium early, dont kick. New expiry: {new_expiry.strftime('%Y-%m-%d')}"
-                            )
-                    else:
-                        new_expiry = now + timedelta(days=30)
-                        first_time_payment = True
-                else:
-                    new_expiry = now + timedelta(days=30)
-                    first_time_payment = True
-
-                # Send premium group link only for first-time payment
-                msg_text = f"✅ Payment confirmed. Membership valid till {new_expiry.strftime('%Y-%m-%d')}."
-                if first_time_payment:
-                    msg_text += f"\nJoin Premium: {PREMIUM_GROUP_LINK}"
+                new_expiry = now + timedelta(days=30)
+                msg_text = f"✅ Payment confirmed. Membership valid till {new_expiry.strftime('%Y-%m-%d')}.\nJoin Premium: {PREMIUM_GROUP_LINK}"
 
                 bot.send_message(
                     chat_id=int(tg_id),
                     text=msg_text
                 )
-                upsert_single_member(tg_id, now.isoformat(), new_expiry.strftime("%Y-%m-%d"), payment_link_obj.get("id"))
+                upsert_single_member(
+                    tg_id,
+                    now.isoformat(),
+                    new_expiry.strftime("%Y-%m-%d"),
+                    payment_link_obj.get("id")
+                )
             except Exception as e:
                 print("Error in razorpay webhook:", e)
     return "", 200
-
-# ===== Reminder Route =====
-@app.route("/run-reminders", methods=["GET"])
-def run_reminders():
-    now = datetime.utcnow()
-    if db:
-        docs = db.collection("members").stream()
-        iterator = ((doc.id, doc.to_dict()) for doc in docs)
-    else:
-        iterator = []
-
-    for tg_id, data in iterator:
-        try:
-            expiry = datetime.strptime(data["expiry"], "%Y-%m-%d")
-            days_left = (expiry - now).days
-            _, short_url = create_payment_link(tg_id)
-            # DM reminder last 3 days
-            if 0 < days_left <= 3:
-                bot.send_message(
-                    chat_id=int(tg_id),
-                    text=(f"⚠️ Reminder: Your Premium membership will expire on {expiry.strftime('%Y-%m-%d')} ({days_left} days left).\n\n"
-                          f"💳 Renew now: {short_url}")
-                )
-            # Admin group only on last day
-            if days_left == 0:
-                bot.send_message(
-                    chat_id=int(ADMIN_GROUP_ID),
-                    text=f"⚠️ User @{tg_id}'s Premium expires today ({expiry.strftime('%Y-%m-%d')})."
-                )
-        except Exception as e:
-            print("Reminder send error for", tg_id, e)
-    return "ok", 200
 
 # ===== Run app =====
 if __name__ == "__main__":
