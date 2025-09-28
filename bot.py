@@ -9,7 +9,7 @@ from firebase_admin import credentials, firestore
 # ===== CONFIG =====
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 WEBHOOK_URL = os.getenv("https://premiumbotx-3.onrender.com/telegram")
-PREMIUM_GROUP_LINK = "https://t.me/+6nL8WEF9pE5lNTBl"
+PREMIUM_GROUP_LINK = "https://t.me/+5fmB-ojP74NhNWE1"
 ADMIN_GROUP_ID = os.getenv("ADMIN_GROUP_ID")  # private admin group ID
 
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID")
